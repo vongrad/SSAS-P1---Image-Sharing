@@ -10,7 +10,7 @@ class Ssas {
     private static $mysqliUser = 'user1';
     private static $mysqliPass = 'password';
     private static $mysqliDb = 'ssas';
-    private static $key = "sUp3r5ecr3t";
+    private static $key = "3XRwaZEsAqnyNsXKs3pvAUBZ";
     private static $data;
 	//private static $image_dir = "/var/www/html/uploads/";
 	private static $image_dir = "/Users/vongrad/htdocs/ssas/uploads/";
@@ -76,7 +76,7 @@ class Ssas {
                 $token = $_COOKIE['token'];
 
                 //Decrypts the token. This call will throw an exception if the token is invalid
-                $token = (array) JWT::decode($token,self::$key,array('HS512'));
+                $token = (array) JWT::decode($token, self::$key, array('HS512'));
 
                 //Extracts the user data from the token
                 self::$data = (array) $token['data'];
@@ -92,7 +92,7 @@ class Ssas {
 
 					$result = self::execute_select($query, $params);
 
-					if ($result->num_rows > 0) return true;
+					if ($result->num_rows == 1) return true;
 				}
 				
                 //If the query did not succeed, then there is something wrong!
@@ -151,9 +151,13 @@ class Ssas {
 			return "bad character";		
 		}
 
+		// Prepare salt and hashed password
+        $salt = $this->generate_salt();
+        $hash = $this->hash_password($password, $salt);
+
         //Inserts username and password into the database
-        $params = array('types' => 'ss', 'values' => array(&$username, &$password));
-        $query = 'INSERT INTO user(username, password) VALUES (?, ?)';
+        $params = array('types' => 'sss', 'values' => array(&$username, &$hash, &$salt));
+        $query = 'INSERT INTO user(username, password, salt) VALUES (?, ?, ?)';
 
         if($this->execute_update($query, $params) == 1) {
             return true;
@@ -169,47 +173,46 @@ class Ssas {
 
         $params = array('types' => 's', 'values' => array(&$username));
         //Query to get the username and real password,
-        $query = 'SELECT id, password FROM user WHERE username = ?';
+        $query = 'SELECT id, password, salt FROM user WHERE username = ?';
 
         $result = $this->execute_select($query, $params);
 
-		if (mysqli_num_rows($result) > 0) {
-			$row = mysqli_fetch_assoc($result);
-			$uid = $row['id'];
-			$password_real = $row['password'];
-        } else {
+        if($result->num_rows != 1) {
             return "username and password does not match";
         }
 
-		// If the real password matches the one given, then the login succeeds.
-        if(isset($password_real) && ($password === $password_real)){
-            //Generates random tokenid
-            //TODO Maybe store some of this server side... (Stateful or stateless?)
-            $tokenId = base64_encode(mcrypt_create_iv(32,MCRYPT_DEV_URANDOM));
+        $row = mysqli_fetch_assoc($result);
 
-            $issuedAt = time(); //time of issue
-            $notBefore = $issuedAt; //can be used to say that a token is not valid before a given time (not used)
-            $expire = $notBefore + 3600 * 24 * 90; //token expires in 90 days
-            $data = [
-                'iat' => $issuedAt,
-                'jti' => $tokenId,
-                'nbf' => $notBefore,
-                'exp' => $expire,
-                'data' => [
-                    'uid' => $uid,
-                    'username' => $username
-                ]
-            ];
+        $uid = $row['id'];
+        $hash = $row['password'];
+        $salt = $row['salt'];
 
-            //Computes the encrypted token
-            $jwt = JWT::encode($data,self::$key,'HS512');
+        if(!hash_equals($hash, $this->hash_password($password, $salt))) {
+            return "username and password does not match";
+        }
 
-            //Sets to cookie to never expire as the token itself contains the expiration date (Mimimum exposure)
-            setcookie("token", $jwt, -1);
-            return true;
-        } else return "username and password does not match";
+        //Generates random token_id
+        $tokenId = base64_encode(mcrypt_create_iv(32, MCRYPT_DEV_URANDOM));
 
-        return "could not login";
+        $issuedAt = time();
+        $expire = $issuedAt + 3600; // token expires in 60 minutes
+        $data = [
+            'iat' => $issuedAt,
+            'jti' => $tokenId,
+            'nbf' => $issuedAt,
+            'exp' => $expire,
+            'data' => [
+                'uid' => $uid,
+                'username' => $username
+            ]
+        ];
+
+        // Computes the encrypted token
+        $jwt = JWT::encode($data, self::$key, 'HS512');
+
+        // Sets to cookie to never expire as the token itself contains the expiration date (Mimimum exposure)
+        setcookie("token", $jwt, -1);
+        return true;
     }
 
     // This function uploads the given image
@@ -490,6 +493,26 @@ class Ssas {
         $result = self::execute_select($query, $params);
 		return $result->num_rows > 0;
     }
+
+    /**
+     * Generate hash of the password concatenated with a salt
+     * @param $password
+     * @param $salt
+     * @return string
+     */
+    function hash_password($password, $salt) {
+        return crypt($password, $salt);
+    }
+
+    /**
+     * Generate salt for a specific user
+     * Should happen upon registration
+     * @return string
+     */
+    function generate_salt(){
+        $salt = strtr(base64_encode(mcrypt_create_iv(16, MCRYPT_DEV_URANDOM)), '+', '.');
+        return sprintf("$2a$%02d$", 10) . $salt;
+    }
 }
 
 class User{
@@ -501,7 +524,7 @@ class User{
         $this -> _name = $name;
     }
 
-    public function getName(){ return $this -> _name; }
+    public function getName(){ return htmlspecialchars($this -> _name, ENT_QUOTES, 'UTF-8'); }
     public function getId(){ return $this -> _id; }
 }
 
@@ -519,7 +542,7 @@ class Image{
         $this -> _id = $id;
         $this -> _ownerId = $ownerId;
         $this -> _image = $image;
-        $this -> _username = $username;
+        $this -> _username = htmlspecialchars($username, ENT_QUOTES, 'UTF-8');
         $this -> _datetime = new DateTime($datetime);
     }
 
@@ -563,8 +586,8 @@ class Comment{
 
     public function __construct($id, $userName, $text, $datetime){
         $this -> _id = $id;
-        $this -> _userName = $userName;
-        $this -> _text = $text;
+        $this -> _userName = htmlspecialchars($userName, ENT_QUOTES, 'UTF-8');
+        $this -> _text = htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
         $this -> _datetime = new DateTime($datetime);
     }
 

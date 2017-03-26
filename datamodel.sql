@@ -6,6 +6,7 @@ CREATE TABLE user(
     id INT AUTO_INCREMENT,
     username VARCHAR(256) UNIQUE,
     password VARCHAR(256) NOT NULL,
+    salt VARCHAR(256) NOT NULL,
     PRIMARY KEY (id)
 ) engine='innodb';
 
