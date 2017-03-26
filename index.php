@@ -11,7 +11,7 @@ $ssas = new Ssas();
 <?php foreach($images as $image){ ?>
         <div class="card">
             <a href="image.php?id=<?php echo $image -> getId(); ?>">
-                <img class="card-img-top" src="<?php echo $image -> getImage(); ?>"/>
+                <img class="card-img-top" src="<?php echo $image -> getUrl(); ?>"/>
             </a>
             <div class="card-footer">
                 <span class="text-muted">posted by <?php echo $image -> getUser(); ?></span>

@@ -19,7 +19,7 @@ if(isset($_POST['remove_share'])){ $share_result = $ssas -> removeShare($image -
 <div class="row">
 <div class="col-lg-8 col-lg-offset-2">
 <div class="card">
-    <img class="card-img-top" src="<?php echo $image -> getImage(); ?>"/>
+    <img class="card-img-top" src="<?php echo $image -> getUrl(); ?>"/>
     <div class="card-footer text-muted">
         posted by <?php echo $image -> getUser(); ?> ( <?php echo $image -> getAge() ?> ago )
 <?php if($ssas -> getUid() == $image ->getOwnerId()){ ?>

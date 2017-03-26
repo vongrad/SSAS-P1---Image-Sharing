@@ -13,7 +13,8 @@ class Ssas {
     private static $key = "3XRwaZEsAqnyNsXKs3pvAUBZ";
     private static $data;
 	//private static $image_dir = "/var/www/html/uploads/";
-	private static $image_dir = "/Users/vongrad/htdocs/ssas/uploads/";
+	public static $image_dir = "/Users/vongrad/htdocs/ssas/uploads/";
+    public static $url_uploads = "http://ssas.dk/uploads/";
 
     private $db_link;
 
@@ -217,7 +218,7 @@ class Ssas {
 
     // This function uploads the given image
     // returns true if the image was successfully uploaded, otherwise error message.
-    function uploadImage($img){
+    function uploadImage($filename, $data){
         if(self::isUserLoggedIn()){
 
             $uid = self::getUid();
@@ -227,13 +228,30 @@ class Ssas {
 
             if(self::execute_update($query, $params) == 1) {
 				$iid = mysqli_insert_id($this->db_link);
+                $filename = "{$iid}_{$filename}";
 
-                self::save_image($img, $iid);
-				return true;
+                $query = "UPDATE image SET filename = ? WHERE id = ?";
+                $params = array('types' => 'si', 'values' => array(&$filename, &$iid));
+
+                self::execute_update($query, $params);
+
+                self::save_image($filename, $data);
+				return array(true, $filename);
 			}            
-			return "Image could not be uploaded";
+			return array(false, "Image could not be uploaded");
         }
-        return "Image could not be uploaded2";
+        return array(false, "Image could not be uploaded2");
+    }
+
+
+
+    /**
+     * Get file extension
+     * @param $filename
+     * @return string extension
+     */
+    private function getExtension($filename) {
+        return substr($filename, strrpos($filename, '.'));
     }
 
     // This function will lookup a users id given the username
@@ -342,9 +360,8 @@ class Ssas {
 
 	// This function saves the image to a file with the corresponding image id as the name.
 	// TODO: Find out how to handle the file permissions.
-	function save_image($img, $iid){
-		$data = base64_decode(preg_replace('#^data:image/\w+;base64,#i', '', $img));
-		$file = self::$image_dir.$iid;
+	function save_image($filename, $data){
+		$file = self::$image_dir.$filename;
 		file_put_contents($file, $data);
 		chmod($file, 0777); // This works for now, but probably isn't necessary... right?
 	}
@@ -353,7 +370,7 @@ class Ssas {
 	// TODO: Find out how to handle the file permissions.
 	function loadImage($iid){
 		$file = self::$image_dir.$iid;
-		$type = pathinfo($file, PATHINFO_EXTENSION);	
+		$type = pathinfo($file, PATHINFO_EXTENSION);
 		$data = file_get_contents($file);
 		$img = 'data:image/' . $type . ';base64,' . base64_encode($data);		
 		return $img;
@@ -368,7 +385,7 @@ class Ssas {
 			// The images to display should either be those owned by the user
 			// or those ahred with the user and should not be duplicated.
 			$uid = self::getUid();
-			$query = 'SELECT DISTINCT image.id,owner_id,username,createdDate 
+			$query = 'SELECT DISTINCT image.id,owner_id,username,createdDate,filename
               FROM image INNER JOIN user on user.id = owner_id 
               LEFT JOIN shared_image ON image_id = image.id 
               WHERE user_id = ? OR owner_id = ? ORDER BY createdDate DESC';
@@ -380,8 +397,7 @@ class Ssas {
 			if ($result->num_rows > 0) {
 				while ($row = mysqli_fetch_assoc($result)) {
 					$iid = $row['id'];
-					$img = self::loadImage($iid);
-					$images[] = new Image($iid, $row['owner_id'], $row['username'], $img, $row['createdDate']);
+					$images[] = new Image($iid, $row['owner_id'], $row['username'], $row['createdDate'], $row['filename']);
 				}
 		    }
 
@@ -397,7 +413,7 @@ class Ssas {
         if(self::isUserLoggedIn())
         {
 			$uid = self::getUid();
-			$query = 'SELECT image.id,owner_id,username,createdDate 
+			$query = 'SELECT image.id,owner_id,username,createdDate,filename 
               FROM image INNER JOIN user ON user.id = owner_id 
               LEFT JOIN shared_image ON image_id = image.id 
               WHERE (user_id = ? OR owner_id = ?) AND image.id = ?';
@@ -409,8 +425,7 @@ class Ssas {
 			if ($result->num_rows > 0) {
 				$row = mysqli_fetch_assoc($result);
 			
-				$img = self::loadImage($iid);
-				return new Image($iid, $row['owner_id'], $row['username'], $img, $row['createdDate']);
+				return new Image($iid, $row['owner_id'], $row['username'], $row['createdDate'], $row['filename']);
 			}
 			return null;
         }
@@ -537,15 +552,17 @@ class Image{
     private $_image;
     private $_username;
     private $_datetime;
+    private $_filename;
 
-    public function __construct($id, $ownerId, $username, $image, $datetime){
+    public function __construct($id, $ownerId, $username, $datetime, $filename){
         $this -> _id = $id;
         $this -> _ownerId = $ownerId;
-        $this -> _image = $image;
         $this -> _username = htmlspecialchars($username, ENT_QUOTES, 'UTF-8');
         $this -> _datetime = new DateTime($datetime);
+        $this->_filename = $filename;
     }
 
+    public function getUrl() { return Ssas::$url_uploads."{$this->_filename}"; }
     public function getId() { return $this -> _id; }
     public function getOwnerId() { return $this -> _ownerId; }
     public function getUser() { return $this -> _username; }

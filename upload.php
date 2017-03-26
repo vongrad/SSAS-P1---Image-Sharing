@@ -11,14 +11,15 @@ if(!$ssas -> isUserLoggedIn()){
 //If a POST occured, try to authenticate
 if(isset($_FILES['image'])){
     $file_tmp = $_FILES['image']['tmp_name'];
+    $file_name = $_FILES['image']['name'];
     if($file_tmp != ""){
         $info = getimagesize($file_tmp);
         if (isset($info)) {
             if (($info[2] === IMAGETYPE_GIF) || ($info[2] === IMAGETYPE_JPEG) || ($info[2] === IMAGETYPE_PNG)) {
                 if(filesize($file_tmp) / 1000 < 4096 ){
-                    $image = 'data:' . $info['mime'] . ';base64,' . base64_encode(file_get_contents($file_tmp));
-                    $result = $ssas -> uploadImage($image);
-                    if($result){ header("Location: index.php"); exit(); }
+                    $data = file_get_contents($file_tmp);
+                    list($success, $result) = $ssas -> uploadImage($file_name ,$data);
+                    if($success){ header("Location: index.php?filename={$result}"); exit(); }
                 } else $result = "Images can't be more than 4 megabyte";
             } else $result = "The uploaded file was not an image";
         } else $result = "Info about the uploaded image could not be retrieved";

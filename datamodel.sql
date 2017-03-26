@@ -14,6 +14,7 @@ CREATE TABLE image(
     id INT AUTO_INCREMENT,
     owner_id INT NOT NULL,
     createdDate DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    filename VARCHAR(256),
     PRIMARY KEY (id),
     FOREIGN KEY fk_owner (owner_id) REFERENCES user(id) ON DELETE CASCADE
 ) engine='innodb';
