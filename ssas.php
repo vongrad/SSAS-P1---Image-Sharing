@@ -1,4 +1,5 @@
 <?php
+
 require_once('vendor/autoload.php');
 use \Firebase\JWT\JWT;
 
@@ -6,33 +7,61 @@ date_default_timezone_set('Europe/Copenhagen');
 
 class Ssas {
 
-    private static $mysqliServer = 'localhost';
-    private static $mysqliUser = 'user1';
-    private static $mysqliPass = 'password';
-    private static $mysqliDb = 'ssas';
-    private static $key = "3XRwaZEsAqnyNsXKs3pvAUBZ";
-    private static $data;
-	//private static $image_dir = "/var/www/html/uploads/";
-	public static $image_dir = "/Users/vongrad/htdocs/ssas/uploads/";
-    public static $url_uploads = "http://ssas.dk/uploads/";
+    /**
+     * Database host
+     * @var
+     */
+    private $mysqliServer;
+    /**
+     * Database user
+     * @var
+     */
+    private $mysqliUser;
+    /**
+     * Database password
+     * @var string
+     */
+    private $mysqliPass;
+    /**
+     * Database name
+     * @var string
+     */
+    private $mysqliDb;
+    /**
+     * JWT encoding key
+     * @var string
+     */
+    private $key;
+    private $data;
+    /**
+     * Location of uploaded files
+     * @var string
+     */
+    public static $path_uploads = "/uploads/";
 
+    /**
+     * MySQLi link to the databse for executing queries
+     * @var mysqli
+     */
     private $db_link;
 
     function __construct(){
-        $this->db_link = mysqli_connect(self::$mysqliServer, self::$mysqliUser, self::$mysqliPass, self::$mysqliDb);
-    }
 
-	// Custom implementaion of mysqli query execution in PHP.
-	// Someone mentioned that an "improved" version exists, but this works for now...
-	function execute($query_str, $split = false){
-		$result;
-		if ($split) $query_str = explode(';', $query_str);
-		else $query_str = str_split($query_str, strlen($query_str));
-		foreach ($query_str as &$query) {
-			if($query) $result = mysqli_query($this->db_link, $query);
-		} 
-		return $result;
-	}
+        // Load config file
+        $config = json_decode(file_get_contents(dirname(__FILE__).'/config.json'));
+
+        // DB set-up
+        $this->mysqliServer = $config->db_host;
+        $this->mysqliUser = $config->db_user;
+        $this->mysqliPass = $config->db_pass;
+        $this->mysqliDb = $config->db_name;
+
+        // JWT key
+        $this->key = $config->secret;
+
+        // Set up connection to the databse
+        $this->db_link = mysqli_connect($this->mysqliServer, $this->mysqliUser, $this->mysqliPass, $this->mysqliDb);
+    }
 
     /**
      * Helper function for execution MySQL SELECT queries
@@ -77,21 +106,21 @@ class Ssas {
                 $token = $_COOKIE['token'];
 
                 //Decrypts the token. This call will throw an exception if the token is invalid
-                $token = (array) JWT::decode($token, self::$key, array('HS512'));
+                $token = (array) JWT::decode($token, $this->key, array('HS512'));
 
                 //Extracts the user data from the token
-                self::$data = (array) $token['data'];
+                $this->data = (array) $token['data'];
 
 				//Check that the user actually exists (could have been removed)
-				$uid = self::getUid();
-				$username = self::getUsername();
+				$uid = $this->getUid();
+				$username = $this->getUsername();
 
-				if (self::verifyInput($username)) {
+				if ($this->verifyInput($username)) {
 
 				    $params = array('types' => 'is', 'values' => array(&$uid, &$username));
 					$query = 'SELECT id FROM user WHERE id = ? AND username = ?';
 
-					$result = self::execute_select($query, $params);
+					$result = $this->execute_select($query, $params);
 
 					if ($result->num_rows == 1) return true;
 				}
@@ -106,7 +135,7 @@ class Ssas {
                 //  2) The token is not valid
                 //  3) No user matching the user data exists
 
-                self::logout();
+                $this->logout();
                 header("Location: index.php");
                 exit(); //Just to be sure
 
@@ -127,18 +156,18 @@ class Ssas {
     // If the user is not authenticated, the the method will try to authenticate.
     // returns true if the user is logged in otherwise false
     function isUserLoggedIn(){
-        if(!isset(self::$data) && isset($_COOKIE['token'])) self::authenticate();
-        return isset(self::$data);
+        if(!isset($this->data) && isset($_COOKIE['token'])) $this->authenticate();
+        return isset($this->data);
     }
 
     // This function will return to logged in users id (if authenticated)
     function &getUid(){
-    if(self::isUserLoggedIn()) return self::$data['uid'];
+        if($this->isUserLoggedIn()) return $this->data['uid'];
     }
 
     // This function will return to logged in users username (if authenticated)
     function &getUsername(){
-    if(self::isUserLoggedIn()) return self::$data['username'];
+        if($this->isUserLoggedIn()) return $this->data['username'];
     }
 
     // This function will create a new user with the given username password combo
@@ -147,7 +176,7 @@ class Ssas {
         if($username == "") return "username can't be empty";
         if($password == "") return "password can't be empty";
 
-		if (!(self::verifyInput($username) && self::verifyInput($password))) {
+		if (!($this->verifyInput($username) && $this->verifyInput($password))) {
 			// Bad user input, like illegal character/byte
 			return "bad character";		
 		}
@@ -209,7 +238,7 @@ class Ssas {
         ];
 
         // Computes the encrypted token
-        $jwt = JWT::encode($data, self::$key, 'HS512');
+        $jwt = JWT::encode($data, $this->key, 'HS512');
 
         // Sets to cookie to never expire as the token itself contains the expiration date (Mimimum exposure)
         setcookie("token", $jwt, -1);
@@ -219,28 +248,28 @@ class Ssas {
     // This function uploads the given image
     // returns true if the image was successfully uploaded, otherwise error message.
     function uploadImage($filename, $data){
-        if(self::isUserLoggedIn()){
+        if($this->isUserLoggedIn()){
 
-            $uid = self::getUid();
+            $uid = $this->getUid();
 
 			$query = 'INSERT INTO image(owner_id) VALUES(?)';
             $params = array('types' => 'i', 'values' => array(&$uid));
 
-            if(self::execute_update($query, $params) == 1) {
+            if($this->execute_update($query, $params) == 1) {
 				$iid = mysqli_insert_id($this->db_link);
                 $filename = "{$iid}_{$filename}";
 
                 $query = "UPDATE image SET filename = ? WHERE id = ?";
                 $params = array('types' => 'si', 'values' => array(&$filename, &$iid));
 
-                self::execute_update($query, $params);
+                $this->execute_update($query, $params);
 
-                self::save_image($filename, $data);
-				return array(true, $filename);
+                $this->save_image($filename, $data);
+				return true;
 			}            
-			return array(false, "Image could not be uploaded");
+			return "Image could not be uploaded";
         }
-        return array(false, "Image could not be uploaded2");
+        return "Image could not be uploaded2";
     }
 
 
@@ -263,7 +292,7 @@ class Ssas {
         $query = 'SELECT id FROM user WHERE username = ?';
         $params = array('types' => 's', 'values' => array(&$username));
 
-        $result = self::execute_select($query, $params);
+        $result = $this->execute_select($query, $params);
 
 		if ($result->num_rows > 0) {
 			$row = mysqli_fetch_assoc($result);
@@ -276,8 +305,8 @@ class Ssas {
     // returns true if the operation was successful, otherwise false
     function removeShare($iid, $username){
 
-        if(self::isUserLoggedIn() && self::isOwner($iid)){
-            $uid = self::getUserId($username);
+        if($this->isUserLoggedIn() && $this->isOwner($iid)){
+            $uid = $this->getUserId($username);
             if($uid == false) return false;
 
             //Removing sharing of image from database
@@ -294,10 +323,10 @@ class Ssas {
     function shareImage($iid, $username)
     {
         //The user must be owner of the image to share it
-        if(self::isUserLoggedIn() && self::isOwner($iid)){
+        if($this->isUserLoggedIn() && $this->isOwner($iid)){
 
             //Getting uid from username
-            $uid = self::getUserId($username);
+            $uid = $this->getUserId($username);
 
             //Inserting sharing of image into database
 			$query = 'INSERT INTO shared_image VALUES (?, ?)';
@@ -311,17 +340,17 @@ class Ssas {
     // This function returns a list of users whom the given image can be shared with
     // returns a list of users if successful, otherwise false
     function getUsersToShareWith($iid){
-        if(self::isUserLoggedIn()){//&& self::isOwner($iid)){
+        if($this->isUserLoggedIn()){//&& $this->isOwner($iid)){
             $users = array();
 
 			// Query database for users to share with, which is everyone but the owner 
 			// and those whom the image is already shared with.
-			$uid = self::getUid();
+			$uid = $this->getUid();
 
             $query = 'SELECT id,username FROM user WHERE id <> ? AND id NOT IN (SELECT user_id FROM shared_image WHERE image_id = ?)';
             $params = array('types' => 'ii', 'values' => array(&$uid, &$iid));
 
-            $result = self::execute_select($query, $params);
+            $result = $this->execute_select($query, $params);
 
 			if ($result->num_rows > 0) {
 				while ($row = mysqli_fetch_assoc($result)) {
@@ -339,13 +368,13 @@ class Ssas {
     // This function returns a list of users whom the given image is shared with.
     // returns a list of users if successful, otherwise false
     function sharedWith($iid){
-        if(self::isUserLoggedIn()) {
+        if($this->isUserLoggedIn()) {
             $users = array();
 			
 			$query = 'SELECT id,username FROM user INNER JOIN shared_image ON id = user_id WHERE image_id = ?';
             $params = array('types' => 'i', 'values' => array(&$iid));
 
-            $result = self::execute_select($query, $params);
+            $result = $this->execute_select($query, $params);
 
 			if ($result->num_rows > 0) {
 				while ($row = mysqli_fetch_assoc($result)) {
@@ -359,17 +388,14 @@ class Ssas {
     }
 
 	// This function saves the image to a file with the corresponding image id as the name.
-	// TODO: Find out how to handle the file permissions.
 	function save_image($filename, $data){
-		$file = self::$image_dir.$filename;
+		$file = dirname(__FILE__).Ssas::$path_uploads.$filename;
 		file_put_contents($file, $data);
-		chmod($file, 0777); // This works for now, but probably isn't necessary... right?
 	}
 
 	// This function loads the image file with the corresponding image id.
-	// TODO: Find out how to handle the file permissions.
-	function loadImage($iid){
-		$file = self::$image_dir.$iid;
+	function loadImage($filename){
+		$file = dirname(__FILE__).Ssas::$path_uploads.$filename;
 		$type = pathinfo($file, PATHINFO_EXTENSION);
 		$data = file_get_contents($file);
 		$img = 'data:image/' . $type . ';base64,' . base64_encode($data);		
@@ -379,12 +405,12 @@ class Ssas {
     // This function returns a list of all images shared with the loggedin user
     // returns a list of images if successful, otherwise false
     function getImages(){
-        if(self::isUserLoggedIn()){
+        if($this->isUserLoggedIn()){
             $images = array();
 			
 			// The images to display should either be those owned by the user
 			// or those ahred with the user and should not be duplicated.
-			$uid = self::getUid();
+			$uid = $this->getUid();
 			$query = 'SELECT DISTINCT image.id,owner_id,username,createdDate,filename
               FROM image INNER JOIN user on user.id = owner_id 
               LEFT JOIN shared_image ON image_id = image.id 
@@ -392,7 +418,7 @@ class Ssas {
 
             $params = array('types' => 'ii', 'values' => array(&$uid, &$uid));
 
-            $result = self::execute_select($query, $params);
+            $result = $this->execute_select($query, $params);
 
 			if ($result->num_rows > 0) {
 				while ($row = mysqli_fetch_assoc($result)) {
@@ -410,9 +436,9 @@ class Ssas {
     // returns the image if successful, otherwise false
     function getImage($iid)
     {
-        if(self::isUserLoggedIn())
+        if($this->isUserLoggedIn())
         {
-			$uid = self::getUid();
+			$uid = $this->getUid();
 			$query = 'SELECT image.id,owner_id,username,createdDate,filename 
               FROM image INNER JOIN user ON user.id = owner_id 
               LEFT JOIN shared_image ON image_id = image.id 
@@ -437,9 +463,9 @@ class Ssas {
     // returns true if successful, otherwise false
     function comment($iid, $comment)
     {
-        if(self::isUserLoggedIn() && self::verifyShare(self::getUid(), $iid))
+        if($this->isUserLoggedIn() && $this->verifyShare($this->getUid(), $iid))
         {
-			$uid = self::getUid();
+			$uid = $this->getUid();
 
             $query = 'INSERT INTO post(text, user_id, image_id) VALUES (?, ?, ?)';
             $params = array('types' => 'sii', 'values' => array(&$comment, &$uid, &$iid));
@@ -453,7 +479,7 @@ class Ssas {
     // returns a list of comments if successful, otherwise false
     function getComments($iid)
     {
-        if(self::isUserLoggedIn() && self::verifyShare(self::getUid(), $iid))
+        if($this->isUserLoggedIn() && $this->verifyShare($this->getUid(), $iid))
       	{			
             $comments = array();
 
@@ -466,7 +492,7 @@ class Ssas {
 				while ($row = mysqli_fetch_assoc($result)) {
 					// Only include verified comments
 					$text = $row['text'];
-					if ((self::verifyInput($text))) {
+					if (($this->verifyInput($text))) {
 						$comments[] = new Comment($row['id'], $row['username'], $text, $row['createdDate']);
 					}
 				}
@@ -480,12 +506,12 @@ class Ssas {
     // This function checks if the loggedin user is owner of the given image
     // returns true if the loggedin user is owner, otherwise false
     function isOwner($iid){
-		$uid = self::getUid();
+		$uid = $this->getUid();
 
 		$query = 'SELECT id FROM image WHERE owner_id = ? AND id = ?';
         $params = array('types' => 'ii', 'values' => array(&$uid, &$iid));
 
-        $result = self::execute_select($query, $params);
+        $result = $this->execute_select($query, $params);
 		return $result->num_rows > 0;
     }
 
@@ -505,7 +531,7 @@ class Ssas {
 		$query = 'SELECT id FROM image LEFT JOIN shared_image ON image_id = id WHERE (user_id = ? OR owner_id = ?) AND id = ?';
         $params = array('types' => 'iii', 'values' => array(&$uid, &$uid, &$iid));
 
-        $result = self::execute_select($query, $params);
+        $result = $this->execute_select($query, $params);
 		return $result->num_rows > 0;
     }
 
@@ -562,7 +588,7 @@ class Image{
         $this->_filename = $filename;
     }
 
-    public function getUrl() { return Ssas::$url_uploads."{$this->_filename}"; }
+    public function getUrl() { return dirname(__FILE__).Ssas::$path_uploads."{$this->_filename}"; }
     public function getId() { return $this -> _id; }
     public function getOwnerId() { return $this -> _ownerId; }
     public function getUser() { return $this -> _username; }
@@ -593,6 +619,7 @@ class Image{
         if($seconds >= 0) return $seconds .' second';
         return "Error!";
     }
+    public function get_filename() { return $this->_filename; }
 }
 
 class Comment{
@@ -638,4 +665,3 @@ class Comment{
         return "Error!";
     }
 }
-?>

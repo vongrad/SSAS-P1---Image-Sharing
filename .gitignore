@@ -3,3 +3,4 @@ uploads
 !uploads/.gitkeep
 !uploads/.htaccess
 vendor/
+config.json
