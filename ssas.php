@@ -115,16 +115,13 @@ class Ssas {
 				$uid = $this->getUid();
 				$username = $this->getUsername();
 
-				if ($this->verifyInput($username)) {
+                $params = array('types' => 'is', 'values' => array(&$uid, &$username));
+                $query = 'SELECT id FROM user WHERE id = ? AND username = ?';
 
-				    $params = array('types' => 'is', 'values' => array(&$uid, &$username));
-					$query = 'SELECT id FROM user WHERE id = ? AND username = ?';
+                $result = $this->execute_select($query, $params);
 
-					$result = $this->execute_select($query, $params);
+                if ($result->num_rows == 1) return true;
 
-					if ($result->num_rows == 1) return true;
-				}
-				
                 //If the query did not succeed, then there is something wrong!
                 throw new Exception('Authentication failed!');
 
@@ -175,11 +172,6 @@ class Ssas {
     function createUser($username, $password){
         if($username == "") return "username can't be empty";
         if($password == "") return "password can't be empty";
-
-		if (!($this->verifyInput($username) && $this->verifyInput($password))) {
-			// Bad user input, like illegal character/byte
-			return "bad character";		
-		}
 
 		// Prepare salt and hashed password
         $salt = $this->generate_salt();
@@ -492,9 +484,7 @@ class Ssas {
 				while ($row = mysqli_fetch_assoc($result)) {
 					// Only include verified comments
 					$text = $row['text'];
-					if (($this->verifyInput($text))) {
-						$comments[] = new Comment($row['id'], $row['username'], $text, $row['createdDate']);
-					}
+                    $comments[] = new Comment($row['id'], $row['username'], $text, $row['createdDate']);
 				}
 		    }
 
@@ -514,15 +504,6 @@ class Ssas {
         $result = $this->execute_select($query, $params);
 		return $result->num_rows > 0;
     }
-
-	// This function will verify whether the given user input is bad. 
-	// This is to prevent malicious users from sending bad input, e.g. NULL, 
-	// which would cause the mysqli service to crash.
-	// Returns true if no bad input is detected, otherwise false.
-	function verifyInput($input) {
-		$valid = !(eval('"'.$input.'"===NULL;') || eval('"'.$input.'"==="\0";'));
-		return $valid;
-	}
 
     // This function checks if the loggedin user is either owner or has access to the given image
     // returns true if the loggedin user has access, otherwise false
